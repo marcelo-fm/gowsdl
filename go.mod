@@ -1,4 +1,4 @@
-module github.com/hooklift/gowsdl
+module github.com/marcelo-fm/gowsdl
 
 go 1.23.0
 
