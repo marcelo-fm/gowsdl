@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"golang.org/x/net/html/charset"
 )
 
 type SOAPEncoder interface {
@@ -176,9 +178,9 @@ func (f *SOAPFault) Error() string {
 
 // HTTPError is returned whenever the HTTP request to the server fails
 type HTTPError struct {
-	//StatusCode is the status code returned in the HTTP response
+	// StatusCode is the status code returned in the HTTP response
 	StatusCode int
-	//ResponseBody contains the body returned in the HTTP response
+	// ResponseBody contains the body returned in the HTTP response
 	ResponseBody []byte
 }
 
@@ -254,6 +256,7 @@ type options struct {
 	httpHeaders      map[string]string
 	mtom             bool
 	mma              bool
+	iso88591         bool
 }
 
 var defaultOptions = options{
@@ -264,6 +267,12 @@ var defaultOptions = options{
 
 // A Option sets options such as credentials, tls, etc.
 type Option func(*options)
+
+func WithISO88591() Option {
+	return func(o *options) {
+		o.iso88591 = true
+	}
+}
 
 // WithHTTPClient is an Option to set the HTTP client to use
 // This cannot be used with WithTLSHandshakeTimeout, WithTLS,
@@ -405,7 +414,8 @@ func (s *Client) Call(soapAction string, request, response interface{}) error {
 // Note that if SOAP fault is returned, it will be stored in the error.
 // On top the attachments array will be filled with attachments returned from the SOAP request.
 func (s *Client) CallContextWithAttachmentsAndFaultDetail(ctx context.Context, soapAction string, request,
-	response interface{}, faultDetail FaultError, attachments *[]MIMEMultipartAttachment) error {
+	response interface{}, faultDetail FaultError, attachments *[]MIMEMultipartAttachment,
+) error {
 	return s.call(ctx, soapAction, request, response, faultDetail, attachments)
 }
 
@@ -424,7 +434,8 @@ func (s *Client) CallWithFaultDetail(soapAction string, request, response interf
 }
 
 func (s *Client) call(ctx context.Context, soapAction string, request, response interface{}, faultDetail FaultError,
-	retAttachments *[]MIMEMultipartAttachment) error {
+	retAttachments *[]MIMEMultipartAttachment,
+) error {
 	// SOAP envelope capable of namespace prefixes
 	envelope := SOAPEnvelope{
 		XmlNS: XmlNsSoapEnv,
@@ -526,7 +537,7 @@ func (s *Client) call(ctx context.Context, soapAction string, request, response 
 	}
 
 	var mmaBoundary string
-	if s.opts.mma{
+	if s.opts.mma {
 		mmaBoundary, err = getMmaHeader(res.Header.Get("Content-Type"))
 		if err != nil {
 			return err
@@ -552,6 +563,10 @@ func (s *Client) call(ctx context.Context, soapAction string, request, response 
 		dec = newMmaDecoder(body, mmaBoundary)
 	} else {
 		dec = xml.NewDecoder(body)
+	}
+	if s.opts.iso88591 {
+		dec := dec.(*xml.Decoder)
+		dec.CharsetReader = charset.NewReaderLabel
 	}
 
 	if err := dec.Decode(respEnvelope); err != nil {
